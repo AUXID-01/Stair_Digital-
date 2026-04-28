@@ -1,0 +1,37 @@
+CHUNK_SIZE = 800
+CHUNK_OVERLAP = 100
+TOP_K = 5
+SIMILARITY_THRESHOLD = 0.35
+MAX_CHAT_HISTORY = 10
+CHROMA_PERSIST_DIR = "data/chroma_db"
+CHROMA_COLLECTION_NAME = "pdf_agent_collection"
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+LLM_MODEL = "llama-3.3-70b-versatile"
+CITATION_FORMAT = "Page {page} | Section {section}"
+LOG_LEVEL = "DEBUG"
+LOG_FILE = "data/logs/agent.jsonl"
+UPLOAD_DIR = "data/uploads"
+
+# Session State Keys
+SESSION_KEYS = {
+    "uploaded_doc": None,
+    "indexed": False,
+    "doc_id": None,
+    "chat_history": [],
+    "trace_log": [],
+    "last_retrievals": [],
+    "current_turn_id": None
+}
+
+def ensure_project_dirs():
+    """Ensure all required project directories exist."""
+    import os
+    dirs = [
+        UPLOAD_DIR,
+        os.path.dirname(LOG_FILE),
+        CHROMA_PERSIST_DIR,
+        "data/uploads"
+    ]
+    for d in dirs:
+        if d:
+            os.makedirs(d, exist_ok=True)
