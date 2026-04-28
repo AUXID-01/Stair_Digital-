@@ -49,7 +49,7 @@ class VectorStore:
 
         try:
             log.info("collection_add_start", count=len(ids))
-            self.collection.add(
+            self.collection.upsert(
                 ids=ids,
                 documents=documents,
                 embeddings=embeddings,

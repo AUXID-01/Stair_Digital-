@@ -6,7 +6,7 @@ Enforces strict document-level filtering to ensure results only come from the ac
 
 from typing import List, Dict, Optional
 import re
-from indexing.embedder import Embedder
+from indexing.embedder import get_model
 from indexing.vector_store import VectorStore
 from config import TOP_K
 from logs.logger import get_logger
@@ -54,10 +54,11 @@ def search_query(query: str, doc_id: Optional[str] = None, top_k: int = TOP_K) -
         log.info("retrieval_start", query=query, doc_id=doc_id, top_k=top_k)
 
         # 1. Encode Query
-        embedder = Embedder()
-        query_embeddings = embedder.embed_text([query])
+        model = get_model()
         
-        if not query_embeddings:
+        try:
+            query_embeddings = model.encode([query], convert_to_numpy=True).tolist()
+        except Exception as e:
             log.error("retrieval_failure", error="Embedding generation failed")
             return []
             
@@ -143,5 +144,9 @@ def search_query(query: str, doc_id: Optional[str] = None, top_k: int = TOP_K) -
         return hits
 
     except Exception as e:
-        log.error("retrieval_failure", error=str(e))
+        import traceback
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Retrieval failed | query='{query}' | error={type(e).__name__}: {e}")
+        logger.debug(traceback.format_exc())
         return []

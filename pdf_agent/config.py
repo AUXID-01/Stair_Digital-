@@ -1,7 +1,8 @@
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 TOP_K = 5
-SIMILARITY_THRESHOLD = 0.35
+SIMILARITY_THRESHOLD = 0.45
+SCATTER_THRESHOLD = 0.35
 MAX_CHAT_HISTORY = 10
 CHROMA_PERSIST_DIR = "data/chroma_db"
 CHROMA_COLLECTION_NAME = "pdf_agent_collection"
@@ -20,7 +21,9 @@ SESSION_KEYS = {
     "chat_history": [],
     "trace_log": [],
     "last_retrievals": [],
-    "current_turn_id": None
+    "current_turn_id": None,
+    "chunk_count": 0,
+    "last_index_summary": None
 }
 
 def ensure_project_dirs():

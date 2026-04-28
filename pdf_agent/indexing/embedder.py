@@ -13,6 +13,20 @@ from logs.logger import get_logger
 
 log = get_logger("indexing.embedder")
 
+_model = None
+
+def get_model(model_name: str = EMBEDDING_MODEL) -> SentenceTransformer:
+    global _model
+    if _model is None:
+        try:
+            log.info("embedding_model_load_start", model_name=model_name)
+            _model = SentenceTransformer(model_name)
+            log.info("embedding_model_load_complete", model_name=model_name)
+        except Exception as e:
+            log.error("embedding_failure", error=str(e), stage="model_load")
+            raise RuntimeError(f"Failed to load embedding model: {e}")
+    return _model
+
 class Embedder:
     """
     Sentence-transformer based embedding generator.
@@ -20,18 +34,6 @@ class Embedder:
     """
     def __init__(self, model_name: str = EMBEDDING_MODEL):
         self.model_name = model_name
-        self._model = None
-
-    def _load_model(self):
-        """Lazily load the embedding model."""
-        if self._model is None:
-            try:
-                log.info("embedding_model_load_start", model_name=self.model_name)
-                self._model = SentenceTransformer(self.model_name)
-                log.info("embedding_model_load_complete", model_name=self.model_name)
-            except Exception as e:
-                log.error("embedding_failure", error=str(e), stage="model_load")
-                raise RuntimeError(f"Failed to load embedding model: {e}")
 
     def embed_text(self, texts: List[str]) -> List[List[float]]:
         """
@@ -48,11 +50,11 @@ class Embedder:
             log.error("embedding_failure", error="All input texts were empty/invalid", stage="input_validation")
             return []
 
-        self._load_model()
+        model = get_model(self.model_name)
         
         try:
             log.info("embedding_batch_start", batch_size=len(texts))
-            embeddings = self._model.encode(texts, convert_to_numpy=True)
+            embeddings = model.encode(texts, convert_to_numpy=True)
             log.info("embedding_batch_complete", batch_size=len(texts))
             
             # Convert numpy arrays to lists for Chroma compatibility

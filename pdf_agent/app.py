@@ -2,13 +2,14 @@ import streamlit as st
 import os
 import json
 from datetime import datetime
-from config import ensure_project_dirs, UPLOAD_DIR
+from config import ensure_project_dirs, UPLOAD_DIR, CITATION_FORMAT, SESSION_KEYS
 from ingestion.parser import parse_pdf
 from ingestion.cleaner import clean_pages
 from ingestion.metadata import enrich_metadata
 from ingestion.chunker import chunk_pages
 from indexing.index_builder import build_index
 from retrieval.searcher import search_query
+from retrieval.hallucination_gate import evaluate, GateResult
 
 # 1. Page Configuration
 st.set_page_config(
@@ -18,26 +19,15 @@ st.set_page_config(
 )
 
 # 2. Session State Initialization
-if "current_pdf" not in st.session_state:
-    st.session_state.current_pdf = None
-if "indexed" not in st.session_state:
-    st.session_state.indexed = False
-if "chunk_count" not in st.session_state:
-    st.session_state.chunk_count = 0
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-if "last_index_summary" not in st.session_state:
-    st.session_state.last_index_summary = None
-if "trace_events" not in st.session_state:
-    st.session_state.trace_events = []
-if "last_retrievals" not in st.session_state:
-    st.session_state.last_retrievals = []
+for key, default_value in SESSION_KEYS.items():
+    if key not in st.session_state:
+        st.session_state[key] = default_value
 
 def add_trace(message: str, level: str = "INFO"):
     timestamp = datetime.now().strftime("%H:%M:%S")
-    st.session_state.trace_events.append(f"[{timestamp}] {level}: {message}")
-    if len(st.session_state.trace_events) > 20:
-        st.session_state.trace_events.pop(0)
+    st.session_state.trace_log.append(f"[{timestamp}] {level}: {message}")
+    if len(st.session_state.trace_log) > 20:
+        st.session_state.trace_log.pop(0)
 
 # 3. Sidebar: Configuration & Status
 with st.sidebar:
@@ -47,13 +37,13 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Source PDF", type=["pdf"])
     if uploaded_file:
         file_path = os.path.join(UPLOAD_DIR, uploaded_file.name)
-        if st.session_state.current_pdf != uploaded_file.name:
+        if st.session_state.uploaded_doc != uploaded_file.name:
             # New file uploaded
             ensure_project_dirs()
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
-            st.session_state.current_pdf = uploaded_file.name
+            st.session_state.uploaded_doc = uploaded_file.name
             st.session_state.indexed = False
             st.session_state.chunk_count = 0
             st.session_state.last_index_summary = None
@@ -64,12 +54,12 @@ with st.sidebar:
     st.markdown("---")
     
     # Ingest Button
-    can_ingest = st.session_state.current_pdf is not None and not st.session_state.indexed
+    can_ingest = st.session_state.uploaded_doc is not None and not st.session_state.indexed
     if st.button("🚀 Ingest & Index", disabled=not can_ingest):
         with st.spinner("Processing PDF Pipeline..."):
             try:
                 add_trace("Starting ingestion pipeline...")
-                file_path = os.path.join(UPLOAD_DIR, st.session_state.current_pdf)
+                file_path = os.path.join(UPLOAD_DIR, st.session_state.uploaded_doc)
                 
                 # Run Pipeline
                 parsed = parse_pdf(file_path)
@@ -84,7 +74,7 @@ with st.sidebar:
                 chunks = chunk_pages(enriched)
                 add_trace(f"Created {len(chunks)} chunks")
                 
-                summary = build_index(chunks, source_doc=st.session_state.current_pdf)
+                summary = build_index(chunks, source_doc=st.session_state.uploaded_doc)
                 add_trace("Vector indexing complete")
                 
                 # Update State
@@ -100,12 +90,12 @@ with st.sidebar:
     
     # Status Display
     st.subheader("System Status")
-    if not st.session_state.current_pdf:
+    if not st.session_state.uploaded_doc:
         st.info("Upload PDF to begin")
     elif not st.session_state.indexed:
         st.warning("Ready to index")
     else:
-        st.success(f"✅ Indexed {st.session_state.chunk_count} chunks from {st.session_state.current_pdf}")
+        st.success(f"✅ Indexed {st.session_state.chunk_count} chunks from {st.session_state.uploaded_doc}")
         if st.session_state.last_index_summary:
             with st.expander("Index Summary"):
                 st.json(st.session_state.last_index_summary)
@@ -126,13 +116,13 @@ with st.sidebar:
     st.subheader("Execution Trace")
     trace_container = st.container(height=250)
     with trace_container:
-        for event in reversed(st.session_state.trace_events):
+        for event in reversed(st.session_state.trace_log):
             st.caption(event)
 
 # 4. Main Panel: Chat Interface
 st.title("📄 PDF-Grounded Conversational Agent")
 
-def render_retrieval_hits(hits):
+def render_retrieval_hits(hits, msg_idx=0):
     """Utility to render hits consistently in history and current turn."""
     with st.expander("Retrieved Context Chunks", expanded=False):
         for i, hit in enumerate(hits):
@@ -143,21 +133,22 @@ def render_retrieval_hits(hits):
             else:
                  section_html = f"**{section}**"
             
-            st.markdown(f"**Chunk #{i+1}** | Page {hit['page']} | Section: {section_html} | Distance: {hit['distance']:.3f}")
+            citation = CITATION_FORMAT.format(page=hit['page'], section=section_html)
+            st.markdown(f"**Chunk #{i+1}** | {citation} | Distance: {hit['distance']:.3f}")
             
             # Requirement 2 & 6: Cleaned Preview
             st.info(hit['preview'])
             
             # Requirement 7: Full Text Toggle (Avoid nested expanders)
-            if st.checkbox("View Full Raw Chunk", key=f"show_raw_{i}_{hit['chunk_id']}"):
+            if st.checkbox("View Full Raw Chunk", key=f"show_raw_{msg_idx}_{i}_{hit['chunk_id']}"):
                 st.text(hit['text'])
 
 # Display Chat History 
-for message in st.session_state.chat_history:
+for msg_idx, message in enumerate(st.session_state.chat_history):
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
         if "hits" in message:
-            render_retrieval_hits(message["hits"])
+            render_retrieval_hits(message["hits"], msg_idx=msg_idx)
 
 # Chat Input
 if prompt := st.chat_input("Ask a question about the document"):
@@ -178,30 +169,32 @@ if prompt := st.chat_input("Ask a question about the document"):
             with st.spinner("Retrieving relevant context..."):
                 # Call Phase 6 Retrieval
                 hits = search_query(
-                    query=prompt, 
-                    doc_id=st.session_state.current_pdf,
+                    query=prompt,
+                    doc_id=st.session_state.uploaded_doc,
                     top_k=5
                 )
-                st.session_state.last_retrievals = hits
-                
-                if hits:
+
+                gate: GateResult = evaluate(hits=hits, query=prompt)
+                st.session_state.last_retrievals = gate.hits
+                add_trace(f"Gate decision: {gate.reason} | best_sim={gate.best_similarity:.3f}")
+
+                if gate.passed:
                     response = "I have successfully retrieved relevant context from the document."
                     st.markdown(response)
-                    
-                    # Requirement 3: Render Hits (expanded by default for immediate feedback)
-                    render_retrieval_hits(hits)
-                    
+                    render_retrieval_hits(gate.hits)
                     st.session_state.chat_history.append({
-                        "role": "assistant", 
+                        "role": "assistant",
                         "content": response,
-                        "hits": hits
+                        "hits": gate.hits
                     })
-                    add_trace(f"Retrieved {len(hits)} chunks")
+                    add_trace(f"Retrieved {len(gate.hits)} chunks — gate passed")
                 else:
-                    response = "No relevant chunks were retrieved for that query."
-                    st.markdown(response)
-                    st.session_state.chat_history.append({"role": "assistant", "content": response})
-                    add_trace("No relevant chunks found", level="WARNING")
+                    st.warning(gate.message)
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": gate.message,
+                    })
+                    add_trace(f"Gate refused — {gate.reason}", level="WARNING")
 
 # 5. Footer / Info
 if not st.session_state.chat_history:

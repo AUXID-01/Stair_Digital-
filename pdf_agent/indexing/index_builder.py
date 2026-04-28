@@ -9,7 +9,6 @@ Dependencies: indexing/embedder.py, indexing/vector_store.py, config.py, logs/lo
 from typing import List, Any, Dict
 from config import CHROMA_COLLECTION_NAME, CHROMA_PERSIST_DIR
 from logs.logger import get_logger
-from indexing.embedder import Embedder
 from indexing.vector_store import VectorStore
 
 log = get_logger("indexing.index_builder")
@@ -65,8 +64,9 @@ def build_index(chunks: List[Any], source_doc: str = "Unknown") -> Dict[str, Any
             raise ValueError("No valid chunks remained after validation.")
 
         # 2. Embedding
-        embedder = Embedder()
-        embeddings = embedder.embed_text(texts)
+        from indexing.embedder import get_model
+        model = get_model()
+        embeddings = model.encode(texts, convert_to_numpy=True).tolist()
 
         # 3. Persistence
         vector_store = VectorStore()
