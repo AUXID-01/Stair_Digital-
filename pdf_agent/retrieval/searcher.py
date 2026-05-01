@@ -33,19 +33,22 @@ def build_preview(text: str, max_chars: int = 280) -> str:
         
     return truncated.rstrip() + "..."
 
-def search_query(query: str, doc_id: Optional[str] = None, top_k: int = TOP_K) -> List[Dict]:
+def search_query(query: str, doc_id: str, top_k: int = TOP_K) -> List[Dict]:
     """
     Encodes the input query and retrieves the most relevant chunks.
-    Strictly filters results by document identity if doc_id is provided.
+    Strictly filters results by document identity.
     
     Args:
         query: The user's natural language question.
-        doc_id: Optional unique identifier (filename or doc_id) to restrict the search.
+        doc_id: Unique identifier to restrict the search.
         top_k: Number of nearest neighbors to retrieve.
         
     Returns:
         A validated list of retrieval hits for the active document.
     """
+    if not doc_id:
+        log.error("retrieval_missing_doc_id")
+        raise ValueError("doc_id is mandatory for constrained retrieval.")
     if not query or not query.strip():
         log.warning("retrieval_skip_empty_query")
         return []
@@ -76,27 +79,16 @@ def search_query(query: str, doc_id: Optional[str] = None, top_k: int = TOP_K) -
         # 3. Handle Filtering Strategy
         where_filter = None
         if doc_id:
-            # We attempt filtering on 'source_doc' which is our project standard.
-            # We also ensure the filter is valid for Chroma.
-            where_filter = {"source_doc": doc_id}
-            log.info("retrieval_filter_applied", doc_id=doc_id, field="source_doc")
+            # Enforce strict document isolation using 'doc_id' field
+            where_filter = {"doc_id": doc_id}
+            log.info("retrieval_filter_applied", doc_id=doc_id)
 
-        # 4. Query Collection
-        try:
-            results = vector_store.collection.query(
-                query_embeddings=[query_vector],
-                n_results=top_k,
-                where=where_filter,
-                include=["documents", "metadatas", "distances"]
-            )
-        except Exception as filter_err:
-            log.warning("retrieval_filter_fallback", error=str(filter_err), doc_id=doc_id)
-            # Fallback: Query all documents and rely on Python post-filtering
-            results = vector_store.collection.query(
-                query_embeddings=[query_vector],
-                n_results=top_k * 2,  # Increase sample size for post-filtering
-                include=["documents", "metadatas", "distances"]
-            )
+        results = vector_store.collection.query(
+            query_embeddings=[query_vector],
+            n_results=top_k,
+            where=where_filter,
+            include=["documents", "metadatas", "distances"]
+        )
 
         # 5. Normalize and Strictly Verify Hits
         hits = []
@@ -110,17 +102,8 @@ def search_query(query: str, doc_id: Optional[str] = None, top_k: int = TOP_K) -
 
             for i in range(len(documents)):
                 meta = metadatas[i]
+                actual_doc = meta.get("doc_id")
                 
-                # Strict identification check (Requirement 3 & 4)
-                # We check both 'source_doc' (modern) and 'doc_id' (legacy/alternative)
-                actual_doc = meta.get("source_doc") or meta.get("doc_id")
-                
-                if doc_id and actual_doc != doc_id:
-                    log.warning("retrieval_cross_doc_filtered", 
-                                expected=doc_id, 
-                                actual=actual_doc)
-                    continue
-
                 text_content = documents[i]
                 preview_text = build_preview(text_content)
                 total_preview_len += len(preview_text)
@@ -130,14 +113,11 @@ def search_query(query: str, doc_id: Optional[str] = None, top_k: int = TOP_K) -
                     "text": text_content,
                     "preview": preview_text,
                     "distance": float(distances[i]),
-                    "page": meta.get("page_start"),
-                    "section": meta.get("section_title"),
+                    "page": int(meta.get("page", 0)),
+                    "section": meta.get("section_title", "General"),
                     "ocr_quality": meta.get("ocr_quality", "good"),
                     "doc_id": actual_doc
                 })
-
-        # Final truncation to requested top_k after post-filtering
-        hits = hits[:top_k]
 
         log.info("retrieval_complete", 
                  hit_count=len(hits), 

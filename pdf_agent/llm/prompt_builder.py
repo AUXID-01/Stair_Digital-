@@ -12,12 +12,12 @@ ABSOLUTE RULES — violating any of these is not permitted:
 1. Answer ONLY from the provided context chunks. Never use outside knowledge under any circumstance.
 
 2. CITATION FORMAT IS MANDATORY. Every single factual claim must end with a citation in this exact format:
-   [Page X | Section Y]
-   Where X is the page number and Y is the exact section title from the chunk header.
+   [ID: <chunk_id> | Page X | Section Y]
+   Where chunk_id is the unique ID provided in the chunk header, X is the page number and Y is the exact section title.
    
    CORRECT examples:
-   - The repo rate was held at 6.5% [Page 1 | Section 06 October 2023].
-   - Inflation risks include food price volatility [Page 2 | Section 06 October 2023].
+   - The repo rate was held at 6.5% [ID: rbi_p1_c0 | Page 1 | Section 06 October 2023].
+   - Inflation risks include food price volatility [ID: rbi_p2_c5 | Page 2 | Section 06 October 2023].
    
    WRONG examples (never do these):
    - The repo rate was held at 6.5% [Page 1].
@@ -37,13 +37,13 @@ ABSOLUTE RULES — violating any of these is not permitted:
 You MUST end every response with a CITATIONS block in exactly this format:
 
 CITATIONS:
-- Page <number> | Section <section_title>
-- Page <number> | Section <section_title>
+- ID: <chunk_id> | Page <number> | Section <section_title>
+- ID: <chunk_id> | Page <number> | Section <section_title>
 
 Rules:
 - Every claim in your answer must map to at least one citation.
-- Do not invent page numbers or section titles.
-- Use only the page and section values provided in the context chunks below.
+- Do not invent chunk_ids, page numbers or section titles.
+- Use only the values provided in the context chunks below.
 - If you cannot cite a claim, do not make that claim.
 - The CITATIONS block is mandatory. A response with no CITATIONS block is invalid.
 """
@@ -55,7 +55,7 @@ def build_messages(hits: List[Dict], query: str, chat_history: List[Dict] = None
     """
     context_parts = []
     for i, hit in enumerate(hits):
-        context_parts.append(f"--- CHUNK {i+1} (Page {hit['page']}, Section {hit['section']}) ---\n{hit['text']}")
+        context_parts.append(f"--- CHUNK {i+1} (ID: {hit['chunk_id']}, Page {hit['page']}, Section {hit['section']}) ---\n{hit['text']}")
     
     context_block = "\n\n".join(context_parts)
     

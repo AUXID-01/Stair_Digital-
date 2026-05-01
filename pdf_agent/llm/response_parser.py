@@ -4,6 +4,7 @@ from typing import List
 
 @dataclass
 class Citation:
+    chunk_id: str
     page: int
     section: str
 
@@ -19,7 +20,7 @@ def parse_llm_response(raw_response: str) -> ParsedResponse:
     Returns is_valid=False if no CITATIONS block is found.
     """
     citation_pattern = re.compile(
-        r"CITATIONS:\s*((?:-\s*Page\s*\d+\s*\|\s*Section\s*.+\n?)+)",
+        r"CITATIONS:\s*((?:-\s*ID:\s*.+?\|\s*Page\s*\d+\s*\|\s*Section\s*.+\n?)+)",
         re.IGNORECASE
     )
     
@@ -41,20 +42,29 @@ def parse_llm_response(raw_response: str) -> ParsedResponse:
         line = line.strip().lstrip("-").strip()
         if not line:
             continue
-        parts = line.split("|", 1)
-        if len(parts) != 2:
+        
+        # Format: ID: <chunk_id> | Page <number> | Section <section_title>
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) != 3:
             continue
+            
         try:
-            page_num = int(re.search(r"\d+", parts[0]).group())
-            section_raw = parts[1].strip()
+            # Extract ID
+            chunk_id = re.sub(r"^ID:\s*", "", parts[0], flags=re.IGNORECASE).strip()
+            
+            # Extract Page
+            page_num = int(re.search(r"\d+", parts[1]).group())
+            
+            # Extract Section
+            section_raw = parts[2].strip()
             section = re.sub(r"^Section\s+", "", section_raw, flags=re.IGNORECASE).strip()
             
-            key = (page_num, section.lower())
+            key = (chunk_id, page_num, section.lower())
             if key in seen:
                 continue
             seen.add(key)
             
-            citations.append(Citation(page=page_num, section=section))
+            citations.append(Citation(chunk_id=chunk_id, page=page_num, section=section))
         except (AttributeError, ValueError):
             continue
     

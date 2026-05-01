@@ -50,10 +50,9 @@ def build_index(chunks: List[Any], source_doc: str = "Unknown") -> Dict[str, Any
             ids.append(c_id)
             texts.append(c_text)
             metadatas.append({
-                "source_doc": source_doc,
+                "doc_id": source_doc,
                 "chunk_id": c_id,
                 "page": int(c_page),
-                "page_end": int(c_page_end),
                 "section_title": str(c_section or "General"),
                 "char_count": int(c_chars),
                 "ocr_quality": c_ocr
